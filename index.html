@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SLRP</title>
+
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/bootstrap-theme.min.css">
+</head>
+
+<body>
+
+<div class="container" ng-app="slrpApp">
+    <div class="page-header">
+        <h1>SLRP</h1>
+
+        <p class="lead">Simple LR(1) parser with table generation and string tester.</p>
+    </div>
+
+    <div class="container" ng-controller="GrammarParserController">
+        <div class="panel {{parseError == null ? 'panel-success' : 'panel-danger'}}">
+            <div class="panel-heading">
+                <h3 class="panel-title">Grammar definition</h3>
+            </div>
+            <div class="panel-body">
+                <!--<label for="grammarDefinitionInput" class="control-label"></label>-->
+                <textarea class="form-control" rows="7" ng-model="grammarDefinition"
+                          placeholder="For example: <A> ::= a 1"></textarea>
+            </div>
+        </div>
+        <div class="alert alert-danger" ng-if="parseError !== null">
+            <strong>Error!</strong> {{parseError}}
+        </div>
+        <div ng-if="grammar !== null" class="panel panel-success">
+            <div class="panel-heading">
+                <h3 class="panel-title">Grammar info</h3>
+            </div>
+            <div class="panel-body">
+                <ul class="list-group">
+                    <li ng-repeat="rule in grammar.rules" class="list-group-item">
+                        <span class="badge">{{rule.index + 1}}</span>
+                        <span class="label {{rule.id.sameAs(grammar.axiom) ? 'label-success' : 'label-info'}}">{{rule.id.char}}</span>
+                        <span class="label label-primary">=</span>
+                        <span ng-repeat="symbol in rule.symbols"
+                              class="label" ng-class="{'label-default': symbol.terminal,
+                               'label-success': symbol.sameAs(grammar.axiom),
+                               'label-info': !symbol.terminal,
+                               'label-danger': symbol.char == '$' && rule.id.sameAs(grammar.axiom)}">
+                            {{(symbol.char !== '$' || rule.id.sameAs(grammar.axiom)) ? symbol.char + ' : ' + symbol.markers : symbol.markers}}
+                        </span>
+                    </li>
+                </ul>
+                <ul class="nav">
+                    <li><span class="label label-success">*</span> - Axiom</li>
+                    <li><span class="label label-info">*</span> - Non-terminal</li>
+                    <li><span class="label label-default">*</span> - Terminal</li>
+                    <li><span class="label label-danger">*</span> - End</li>
+                </ul>
+            </div>
+        </div>
+        <div ng-controller="TableBuilderController">
+            <div class="panel panel-success" ng-if="controlTable !== null">
+                <div class="panel-heading">
+                    <h3 class="panel-title">Grammar control table</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-striped">
+                            <thead>
+                            <tr>
+                                <th>#</th>
+                                <th ng-repeat="char in grammar.uniqueChars">{{char}}</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr ng-repeat="index in controlTable.commands | keys"
+                                ng-init="row = controlTable.commands[index]">
+                                <!--<tr ng-repeat="(index, row) in controlTable.commands track by index">-->
+                                <td>{{index}}</td>
+                                <td ng-repeat="char in grammar.uniqueChars" ng-init="commandChar = row[char].str()[0]">
+                                    <span ng-class="{'label label-info': commandChar == 'S',
+                                     'label label-warning': commandChar == 'R',
+                                     'label label-success': commandChar == 'I'}">
+                                        {{row[char] != undefined ? row[char].str() : '*'}}
+                                    </span>
+                                </td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <ul class="nav">
+                        <li><span class="label label-success">I</span> - Init command</li>
+                        <li><span class="label label-info">S</span> - Shift command</li>
+                        <li><span class="label label-warning">R</span> - Reduce command</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="alert alert-danger" ng-if="buildError !== null">
+                <strong>Error!</strong> {{buildError}}
+            </div>
+            <!--            <div ng-controller="StringTesterController">
+                            <div class="panel panel-success" ng-if="controlTable !== null">
+                                <div class="panel-heading">
+                                    <h3 class="panel-title">String tester</h3>
+                                </div>
+                                <div class="panel-body">
+                                    <div class="input-group input-group-lg">
+                                        <span class="input-group-addon">
+                                            <span class="glyphicon glyphicon-ok"></span>
+                                        </span>
+                                        <input type="text" class="form-control" placeholder="For example: a0b1">
+                                    </div>
+                                    <div class="form-group has-success has-feedback">
+                                        <input type="text" class="form-control" ng-model="testString">
+
+                                    </div>
+                                </div>
+                            </div>
+                        </div>-->
+        </div>
+    </div>
+</div>
+<div id="footer">
+    <div class="container">
+        <p class="text-muted">Developed by Maksym Sihida (z2432k) © All Rights Reserved</p>
+    </div>
+</div>
+<script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+<script src="//ajax.googleapis.com/ajax/libs/angularjs/1.3.0-beta.13/angular.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script>
+function Symbol(char, terminal) {
+    this.char = char;
+    this.terminal = terminal;
+    this.markers = [];
+    this.next = undefined;
+
+    this.sameAs = function (other) {
+        return this.char == other.char && this.terminal == other.terminal;
+    };
+
+    this.identicalTo = function (other) {
+        if (!this.sameAs(other)) {
+            return false;
+        }
+
+        return (function (a, b) {
+            if (a === b) {
+                return true;
+            }
+            if (a == null || b == null) {
+                return false;
+            }
+            if (a.length != b.length) {
+                return false;
+            }
+
+            a = a.sort();
+            b = b.sort();
+
+            for (var i = 0; i < a.length; ++i) {
+                if (a[i] !== b[i]) {
+                    return false;
+                }
+            }
+            return true;
+        })(this.markers, other.markers);
+    };
+}
+
+function Rule(id, symbols) {
+    this.id = id;
+    this.symbols = symbols;
+    this.index = null;
+
+    (function () {
+        for (var i = 0; i < symbols.length - 1; ++i) {
+            symbols[i].next = symbols[i + 1];
+        }
+    })();
+}
+
+function Grammar(axiom, rules) {
+    var reduce = function (array) {
+        return array.filter(function (elem, pos) {
+            return array.indexOf(elem) == pos;
+        });
+    };
+
+    this.uniqueChars = (function () {
+        var allChars = [];
+        for (var i = 0; i < rules.length; ++i) {
+            allChars.push(rules[i].id.char);
+        }
+        for (i = 0; i < rules.length; ++i) {
+            for (var j = 0; j < rules[i].symbols.length; ++j) {
+                var symbol = rules[i].symbols[j];
+                if (!symbol.sameAs(Grammar.endSymbol)) {
+                    allChars.push(symbol.char);
+                }
+            }
+        }
+        allChars.push(Grammar.endSymbol.char);
+        return reduce(allChars);
+    })();
+
+    var selectRules = function (nonterminal) {
+        var selected = [];
+        for (var i = 0; i < rules.length; ++i) {
+            if (rules[i].id.sameAs(nonterminal)) {
+                selected.push(rules[i]);
+            }
+        }
+        return selected;
+    };
+
+    (function () {
+        var index = 1;
+        var markedSymbols = [];
+
+        var lookupIdenticalMarkedSymbol = function (symbol) {
+            for (var i = 0; i < markedSymbols.length; ++i) {
+                var markedSymbol = markedSymbols[i];
+                // Mindfuck, I know.. :3
+                if (markedSymbol !== symbol && markedSymbol.identicalTo(symbol)) {
+                    return markedSymbol;
+                }
+            }
+            return undefined;
+        };
+
+        var spreadIdenticalMarkers = function (symbolToLook, symbolToSpread) {
+            var spreadMarkers = false;
+            var identicalSymbol = lookupIdenticalMarkedSymbol(symbolToLook);
+            if (identicalSymbol !== undefined && identicalSymbol.next.markers.length > 0) {
+                spreadMarkers = true;
+                var markersToSpread = identicalSymbol.next.markers;
+                for (var i = 0; i < markersToSpread.length; ++i) {
+                    symbolToSpread.markers.push(markersToSpread[i]);
+                }
+            }
+            return spreadMarkers;
+        };
+
+        var spreadToRules = function (symbol) {
+            var foundRules = false;
+            if (!symbol.terminal) {
+                var selected = selectRules(symbol);
+                for (var k = 0; k < selected.length; ++k) {
+                    selected[k].symbols[0].markers.push(index);
+                    foundRules = true;
+                }
+            }
+            return foundRules;
+        };
+
+        (function () {
+            var selected = selectRules(axiom);
+            for (var i = 0; i < selected.length; ++i) {
+                selected[i].symbols[0].markers.push(index);
+            }
+            index++;
+        })();
+
+        for (var i = 0; i < rules.length; ++i) {
+            var symbols = rules[i].symbols;
+            for (var j = 0; j < symbols.length; ++j) {
+                var symbol = rules[i].symbols[j];
+                markedSymbols.push(symbol);
+                if (symbol.markers.length > 0) {
+                    continue;
+                }
+                if (j > 0 && spreadIdenticalMarkers(rules[i].symbols[j - 1], symbol)) {
+                    spreadToRules(symbol);
+                } else {
+                    symbol.markers.push(index);
+                    spreadToRules(symbol);
+                    index++;
+                }
+            }
+        }
+    }());
+
+    (function () {
+        for (var i = 0; i < rules.length; ++i) {
+            rules[i].index = i;
+        }
+    })();
+
+    this.axiom = axiom;
+    this.rules = rules;
+
+    this.selectFollowers = function (nonterminal) {
+        var selected = [];
+        for (var i = 0; i < rules.length; ++i) {
+            var symbols = rules[i].symbols;
+            for (var j = 0; j < symbols.length - 1; ++j) {
+                var nextSymbol = symbols[j].next;
+                if (symbols[j].sameAs(nonterminal) && !nextSymbol.sameAs(Grammar.endSymbol)) {
+                    selected.push(nextSymbol);
+                }
+            }
+            if (rules[i].id.sameAs(axiom)) {
+                selected.push(Grammar.endSymbol);
+            }
+        }
+        return selected;
+    };
+}
+Grammar.endSymbol = Object.freeze(new Symbol('$', true));
+
+function ControlCommand(context) {
+    this.context = context;
+    this.name = "E";
+}
+ControlCommand.prototype.str = function () {
+    return this.name + this.context;
+};
+ControlCommand.prototype.equalTo = function (other) {
+    return this.str() == other.str();
+};
+ControlCommand.prototype.perform = function (stack, tape) {
+    throw "Tried to execute empty control command: " + this.str();
+};
+
+
+function InitCommand(index) {
+    ControlCommand.call(this, index);
+    this.name = "I";
+}
+InitCommand.prototype = Object.create(ControlCommand.prototype);
+InitCommand.prototype.constructor = InitCommand;
+InitCommand.prototype.perform = function (stack, tape) {
+    throw "Tried to perform initialization command";
+};
+
+
+function ShiftCommand(index) {
+    ControlCommand.call(this, index);
+    this.name = "S";
+}
+ShiftCommand.prototype = Object.create(ControlCommand.prototype);
+ShiftCommand.prototype.constructor = ShiftCommand;
+ShiftCommand.prototype.perform = function (stack, tape) {
+    var newIndex = this.context;
+    stack.push(new State(newIndex, tape.readChar()));
+    tape.shift();
+};
+
+
+function ReduceCommand(rule) {
+    ControlCommand.call(this, rule);
+    this.name = "R";
+}
+ReduceCommand.prototype = Object.create(ControlCommand.prototype);
+ReduceCommand.prototype.constructor = ReduceCommand;
+ReduceCommand.prototype.str = function () {
+    var rule = this.context;
+    return this.name + (rule.index + 1);
+};
+ReduceCommand.prototype.perform = function (stack, tape) {
+    var rule = this.context;
+    var symbolsString = "";
+    var poppedString = "";
+    for (var i = 0; i < rule.symbols.length; ++i) {
+        symbolsString += rule.symbols[i].char;
+        poppedString += stack.pop();
+    }
+    poppedString = poppedString.reverse();
+    if (symbolsString == poppedString) {
+        tape.insertChar(rule.id.char);
+    } else {
+        throw "Reduce operation yielded wrong chars: " + symbolsString + " vs " + poppedString;
+    }
+};
+
+function ControlTable(commands) {
+    this.commands = commands;
+}
+ControlTable.initIndex = 1;
+
+function Tape(source) {
+    var string = source + "$";
+    var pointer = 0;
+
+    var insert = function (a, b, position) {
+        return [a.slice(0, position), b, a.slice(position)].join('');
+    };
+
+    this.insertChar = function (char) {
+        string = insert(string, char, pointer);
+    };
+
+    this.readChar = function () {
+        return string[pointer];
+    };
+
+    this.ended = function () {
+        return !pointer < string.length;
+    };
+
+    this.shift = function () {
+        if (!this.ended()) {
+            pointer++;
+        } else {
+            throw "Tried to further shift finished tape: " + string + " at " + pointer;
+        }
+        return pointer++;
+    };
+}
+
+function State(index, char) {
+    this.index = index;
+    this.char = char;
+}
+
+function StateStack(initIndex) {
+    var stack = [new State(initIndex, null)];
+
+    this.push = function (state) {
+        stack.push(state);
+    };
+
+    this.pop = function () {
+        return stack.pop();
+    };
+
+    this.getState = function () {
+        return stack[stack.length - 1];
+    }
+}
+
+angular.module('slrpApp', [])
+        .filter('keys', function () {
+            return function (input) {
+                if (!input) {
+                    return [];
+                }
+                return Object.keys(input);
+            }
+        })
+        .service('GrammarParser', function () {
+            var parseSymbol = function (chars) {
+                if (chars.length == 3 && chars[0] == '<' && chars[2] == '>') {
+                    return new Symbol(chars[1], false);
+                } else if (chars.length == 1) {
+                    return new Symbol(chars[0], true);
+                }
+                throw "Cannot parse Symbol from specified chars: " + chars;
+            };
+
+            var parseRuleLine = function (line) {
+                var pair = line.split(' ').join('').split("::=");
+                if (pair.length == 2) {
+                    var id = parseSymbol(pair[0]);
+                    var str = pair[1];
+                    var symbols = [];
+                    for (var i = 0; i < str.length;) {
+                        var chars;
+                        if (str[i] !== '<') {
+                            chars = str.substr(i, 1);
+                            i += 1;
+                        } else {
+                            chars = str.substr(i, 3);
+                            i += 3;
+                        }
+                        symbols.push(parseSymbol(chars));
+                    }
+                    symbols.push(new Symbol('$', true));
+                    return new Rule(id, symbols);
+                }
+                throw "Cannot parse rule from specified line: " + line;
+            };
+
+            var parseGrammar = function (string) {
+                var lines = string.split('\n');
+                var rules = [];
+                for (var i = 0; i < lines.length; ++i) {
+                    rules.push(parseRuleLine(lines[i]));
+                }
+                var axiom = rules[0].id;
+                return new Grammar(axiom, rules);
+            };
+
+            this.parse = function (grammarDefinition) {
+                return parseGrammar(grammarDefinition);
+            }
+        })
+        .controller('GrammarParserController', function ($scope, GrammarParser) {
+            $scope.$watch("grammarDefinition", function (newValue) {
+                $scope.grammar = null;
+                if (newValue !== undefined && newValue.length > 7) {
+                    try {
+                        $scope.grammar = GrammarParser.parse(newValue);
+                    } catch (error) {
+                        $scope.parseError = error;
+                        return;
+                    }
+                }
+                $scope.parseError = null;
+            });
+        })
+        .service('ControlTableBuilder', function () {
+            var placeCommand = function (commands, command, marker, symbol) {
+                if (commands[marker][symbol.char] !== undefined && !commands[marker][symbol.char].equalTo(command)) {
+                    throw "Tried to put a command in place of another command: " + commands[marker][symbol.char].str();
+                }
+                commands[marker][symbol.char] = command;
+            };
+
+            var placeShiftCommand = function (commands, marker, symbol) {
+                if (commands[marker] == undefined) {
+                    commands[marker] = {}
+                }
+                if (symbol.next.markers.length == 1) {
+                    var command = new ShiftCommand(symbol.next.markers[0]);
+                    placeCommand(commands, command, marker, symbol);
+                } else {
+                    throw "Tried to create 'shift' command with more than one destination: " + symbol.next.markers;
+                }
+            };
+
+            var placeReduceCommands = function (grammar, commands, rule, markers) {
+                var followers = grammar.selectFollowers(rule.id);
+                for (var j = 0; j < markers.length; ++j) {
+                    var marker = markers[j];
+                    if (commands[marker] == undefined) {
+                        commands[marker] = {}
+                    }
+                    for (var i = 0; i < followers.length; ++i) {
+                        var follower = followers[i];
+                        var command = new ReduceCommand(rule);
+                        placeCommand(commands, command, marker, follower);
+                    }
+                }
+            };
+
+            var placeInitCommand = function (grammar, commands) {
+                if (commands[ControlTable.initIndex][grammar.axiom.char] == undefined) {
+                    commands[ControlTable.initIndex][grammar.axiom.char] = new InitCommand(ControlTable.initIndex);
+                } else {
+                    throw "Tried to put more than one init command";
+                }
+            };
+
+            var buildTable = function (grammar) {
+                var commands = {};
+                var rules = grammar.rules;
+                for (var i = 0; i < rules.length; ++i) {
+                    var symbols = rules[i].symbols;
+                    for (var j = 0; j < symbols.length - 1; ++j) {
+                        var symbol = symbols[j];
+                        var markers = symbol.markers;
+                        for (var k = 0; k < markers.length; ++k) {
+                            placeShiftCommand(commands, markers[k], symbol);
+                        }
+                    }
+                    placeReduceCommands(grammar, commands, rules[i], symbols[j].markers);
+                }
+                placeInitCommand(grammar, commands);
+                return new ControlTable(commands);
+            };
+
+            this.build = function (grammarDefinition) {
+                return buildTable(grammarDefinition);
+            }
+        })
+        .controller('TableBuilderController', function ($scope, ControlTableBuilder) {
+            $scope.$watch("grammar", function (newValue) {
+                $scope.controlTable = null;
+                if (newValue !== undefined && newValue !== null) {
+                    try {
+                        $scope.controlTable = ControlTableBuilder.build(newValue);
+                    } catch (error) {
+                        $scope.buildError = error;
+                        return;
+                    }
+                }
+                $scope.buildError = null;
+            });
+        })
+        .service('StringParser', function () {
+            this.parse = function (table, string) {
+                var commands = table.commands;
+                var stack = new StateStack(ControlTable.initIndex);
+                var tape = new Tape(string);
+                while (!tape.ended()) {
+                    var command = commands[stack.getState().index][tape.readChar()];
+                    if (command !== undefined) {
+                        command.perform(stack, tape);
+                    } else {
+                        throw "Parser reached empty destination at: " + stack.getState().index + ":" + tape.readChar() +
+                                ", stack: " + stack + ", tape: " + tape;
+                    }
+                }
+            }
+        })
+        .service('StringTester', function (StringParser) {
+            var testString = function (table, string) {
+                try {
+                    StringParser.parse(table, string);
+                } catch (error) {
+                    if (error == 0) {
+                        return true;
+                    } else {
+                        throw error;
+                    }
+                }
+            };
+
+            this.test = function (controlTable, testString) {
+                return testString(controlTable, testString);
+            }
+        })
+        .controller('StringTesterController', function ($scope, StringTester) {
+            var retest = function (controlTable, testString) {
+                $scope.testResult = null;
+                if (controlTable !== undefined && controlTable !== null && testString !== undefined && testString !== null) {
+                    try {
+                        $scope.testResult = StringTester.test(controlTable, testString);
+                    } catch (error) {
+                        $scope.testError = error;
+                        return;
+                    }
+                }
+                $scope.testError = null;
+            };
+
+            $scope.$watchGroup(['controlTable', 'testString'], function (newValues) {
+                retest(newValues[0], newValues[1]);
+            });
+        });
+</script>
+</body>
+</html>
